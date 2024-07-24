@@ -1,0 +1,74 @@
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Load the ACLED dataset
+data = pd.read_csv('/content/GEDEvent_v24_0_6.csv')
+
+# Select key columns
+key_columns = [
+    'latitude', 'longitude', 'country', 'adm_1', 'adm_2',
+    'date_start', 'date_end', 'year', 'type_of_violence',
+    'conflict_name', 'side_a', 'side_b', 'deaths_a', 'deaths_b',
+    'deaths_civilians', 'best', 'number_of_sources', 'source_date'
+]
+
+data = data[key_columns]
+
+# Data cleaning
+data = data.dropna()
+
+# Convert dates to datetime format
+data['date_start'] = pd.to_datetime(data['date_start'])
+data['date_end'] = pd.to_datetime(data['date_end'])
+
+# Calculate event duration
+data['event_duration'] = (data['date_end'] - data['date_start']).dt.days
+
+# Handle potential infinite values (e.g., when date_end is before date_start)
+data['event_duration'] = data['event_duration'].apply(lambda x: x if x >= 0 else 0)
+
+# Clustering to identify hotspots
+kmeans = KMeans(n_clusters=10, random_state=42)
+data['cluster'] = kmeans.fit_predict(data[['latitude', 'longitude']])
+
+# Plotting clusters
+plt.figure(figsize=(10, 6))
+sns.scatterplot(data=data, x='longitude', y='latitude', hue='cluster', palette='viridis')
+plt.title('Conflict Hotspots by Cluster')
+plt.show()
+
+# Classification to predict high-risk areas
+X = data[['latitude', 'longitude', 'year', 'event_duration']]
+y = data['best'] > data['best'].median()  # Binary target: high vs. low fatalities
+
+# Split the data
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+# Train the model
+clf = RandomForestClassifier(random_state=42)
+clf.fit(X_train, y_train)
+
+# Predict and evaluate the model
+y_pred = clf.predict(X_test)
+accuracy = accuracy_score(y_test, y_pred)
+
+print(f'Model Accuracy: {accuracy:.2f}')
+print(classification_report(y_test, y_pred))
+print(confusion_matrix(y_test, y_pred))
+
+# Feature importance
+importances = clf.feature_importances_
+features = X.columns
+indices = importances.argsort()[::-1]
+
+plt.figure(figsize=(10, 6))
+plt.title("Feature Importances")
+plt.bar(range(X.shape[1]), importances[indices], align="center")
+plt.xticks(range(X.shape[1]), [features[i] for i in indices], rotation=90)
+plt.tight_layout()
+plt.show()
